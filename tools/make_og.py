@@ -22,11 +22,18 @@ def font(size, bold=True):
     return ImageFont.load_default()
 
 
-def soldier(d, x, y, r, body, light):
-    d.ellipse((x - r, y - r, x + r, y + r), fill=body)
-    hr = r * 0.45
-    hx, hy = x - r * 0.25, y - r * 0.3
-    d.ellipse((hx - hr, hy - hr, hx + hr, hy + hr), fill=light)
+def soldier(d, x, y, r, body, light, dark="#1e3a8a", facing_right=True):
+    """Tiny soldier seen from the side, marching to the right (blue) or left (red)."""
+    f = 1 if facing_right else -1
+    d.rectangle((x - r * 0.7, y + r * 0.5, x - r * 0.2, y + r * 1.4), fill=dark)
+    d.rectangle((x + r * 0.2, y + r * 0.5, x + r * 0.7, y + r * 1.4), fill=dark)
+    d.rounded_rectangle((x - r, y - r * 0.45, x + r, y + r * 1.0), int(r * 0.45), fill=body)
+    gx0, gx1 = sorted((x + f * r * 0.75, x + f * r * 1.9))
+    d.rectangle((gx0, y - r * 0.2, gx1, y + r * 0.1), fill="#1f2937")
+    d.ellipse((x - r * 0.7, y - r * 1.75, x + r * 0.7, y - r * 0.35), fill="#fcd9b6")
+    d.pieslice((x - r * 0.78, y - r * 1.9, x + r * 0.78, y - r * 0.35), 180, 360, fill=dark)
+    ex = x + f * r * 0.28
+    d.ellipse((ex - r * 0.12, y - r * 1.05, ex + r * 0.12, y - r * 0.8), fill="#111827")
 
 
 def card():
@@ -61,7 +68,7 @@ def card():
     for i in range(90):
         x = 930 + random.random() * 240
         y = 60 + random.random() * 510
-        soldier(d, x, y, 9, "#ef4444", "#fca5a5")
+        soldier(d, x, y, 9, "#ef4444", "#fca5a5", dark="#7f1d1d", facing_right=False)
 
     for gx, gy, gh, label, col in gates:
         f = font(34)

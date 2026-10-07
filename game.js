@@ -77,7 +77,7 @@ function makeLevel(n) {
   const nBases = Math.min(3, 1 + Math.floor((n - 1) / 2));
   const xs = nBases === 1 ? [200] : nBases === 2 ? [120, 280] : [75, 200, 325];
   const baseHp = 200 + n * 60;
-  xs.forEach(x => L.bases.push({ x, y: 70, w: 66, h: 42, hp: baseHp, maxHp: baseHp, timer: 1 + rng() * 2, wobble: 0 }));
+  xs.forEach(x => L.bases.push({ x, y: 82, w: 66, h: 42, hp: baseHp, maxHp: baseHp, timer: 1 + rng() * 2, wobble: 0 }));
 
   const rowYs = [190, 272, 354, 436, 518];
   const nRows = Math.min(5, 2 + Math.ceil(n / 2));
@@ -141,7 +141,7 @@ function mkSoldier(team, x, y, o) {
   return Object.assign({
     team, x, y, px: x, py: y, r: 4.5, hp: 1, maxHp: 1, dmg: 2,
     speed: team === 'blue' ? 95 : 46, boost: 0, lastGate: -1, champ: null,
-    hit: 0, dead: false, brute: false, launchVx: 0, launchT: 0,
+    hit: 0, dead: false, brute: false, launchVx: 0, launchT: 0, ph: Math.random() * 6.283,
   }, o || {});
 }
 
@@ -459,29 +459,126 @@ function roundRect(x, y, w, h, r) {
   ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
 }
 
-function drawTeam(list, body, light) {
-  ctx.fillStyle = body; ctx.beginPath();
-  for (const s of list) { if (s.champ) continue; ctx.moveTo(s.x + s.r, s.y); ctx.arc(s.x, s.y, s.r, 0, 6.2832); }
+const TAU = 6.2832;
+function rrPath(x, y, w, h, r) {
+  ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+
+// Little soldiers: batched into a handful of fills per team so hundreds stay cheap.
+// Blue faces up (we see helmets and backpacks); red faces down (we see faces).
+const PAL = {
+  blue: { body: '#3b82f6', dark: '#1e3a8a', helmet: '#1d4ed8', stripe: '#93c5fd', skin: '#fcd9b6', gun: '#1f2937' },
+  red:  { body: '#ef4444', dark: '#7f1d1d', helmet: '#991b1b', stripe: '#fca5a5', skin: '#fcd9b6', gun: '#1f2937' },
+};
+function drawSoldiers(list, pal, facingUp) {
+  const t = G.t * 14;
+  const plain = s => !s.champ && !s.brute;
+  // legs
+  ctx.fillStyle = pal.dark; ctx.beginPath();
+  for (const s of list) { if (!plain(s)) continue; const r = s.r, k = Math.sin(t + s.ph) * r * 0.4;
+    ctx.rect(s.x - r * 0.72, s.y + r * 0.55 + k, r * 0.55, r * 0.95); ctx.rect(s.x + r * 0.17, s.y + r * 0.55 - k, r * 0.55, r * 0.95); }
   ctx.fill();
-  ctx.fillStyle = light; ctx.beginPath();
-  for (const s of list) { if (s.champ) continue; const r = s.r * 0.45, x = s.x - s.r * 0.25, y = s.y - s.r * 0.3; ctx.moveTo(x + r, y); ctx.arc(x, y, r, 0, 6.2832); }
+  // body
+  ctx.fillStyle = pal.body; ctx.beginPath();
+  for (const s of list) { if (!plain(s)) continue; const r = s.r; rrPath(s.x - r, s.y - r * 0.45, r * 2, r * 1.45, r * 0.45); }
   ctx.fill();
+  // backpack (blue) or belt (red)
+  ctx.fillStyle = pal.dark; ctx.beginPath();
+  for (const s of list) { if (!plain(s)) continue; const r = s.r;
+    if (facingUp) rrPath(s.x - r * 0.5, s.y - r * 0.2, r, r * 0.9, r * 0.25); else ctx.rect(s.x - r, s.y + r * 0.55, r * 2, r * 0.3); }
+  ctx.fill();
+  // rifle
+  ctx.fillStyle = pal.gun; ctx.beginPath();
+  for (const s of list) { if (!plain(s)) continue; const r = s.r; ctx.rect(s.x + r * 0.95, facingUp ? s.y - r * 1.5 : s.y - r * 0.1, r * 0.32, r * 1.6); }
+  ctx.fill();
+  // head
+  ctx.fillStyle = pal.skin; ctx.beginPath();
+  for (const s of list) { if (!plain(s)) continue; const r = s.r; ctx.moveTo(s.x + r * 0.7, s.y - r); ctx.arc(s.x, s.y - r, r * 0.7, 0, TAU); }
+  ctx.fill();
+  // helmet
+  ctx.fillStyle = pal.helmet; ctx.beginPath();
+  for (const s of list) { if (!plain(s)) continue; const r = s.r, hy = s.y - r * 1.05;
+    if (facingUp) { ctx.moveTo(s.x + r * 0.76, hy); ctx.arc(s.x, hy, r * 0.76, 0, TAU); }
+    else { ctx.moveTo(s.x - r * 0.78, hy + r * 0.1); ctx.arc(s.x, hy + r * 0.1, r * 0.78, Math.PI, 0); ctx.closePath(); } }
+  ctx.fill();
+  // helmet stripe / eyes
+  if (facingUp) {
+    ctx.fillStyle = pal.stripe; ctx.beginPath();
+    for (const s of list) { if (!plain(s)) continue; const r = s.r; ctx.rect(s.x - r * 0.12, s.y - r * 1.75, r * 0.24, r * 1.1); }
+    ctx.fill();
+  } else {
+    ctx.fillStyle = '#111827'; ctx.beginPath();
+    for (const s of list) { if (!plain(s)) continue; const r = s.r, ey = s.y - r * 0.85;
+      ctx.moveTo(s.x - r * 0.25 + r * 0.13, ey); ctx.arc(s.x - r * 0.25, ey, r * 0.13, 0, TAU);
+      ctx.moveTo(s.x + r * 0.25 + r * 0.13, ey); ctx.arc(s.x + r * 0.25, ey, r * 0.13, 0, TAU); }
+    ctx.fill();
+  }
+  // hit flash: white silhouette
   ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.beginPath();
-  for (const s of list) { if (s.hit > 0 && !s.champ) { ctx.moveTo(s.x + s.r, s.y); ctx.arc(s.x, s.y, s.r, 0, 6.2832); } }
+  for (const s of list) { if (!plain(s) || s.hit <= 0) continue; const r = s.r;
+    rrPath(s.x - r, s.y - r * 0.45, r * 2, r * 1.45, r * 0.45); ctx.moveTo(s.x + r * 0.78, s.y - r * 1.05); ctx.arc(s.x, s.y - r * 1.05, r * 0.78, 0, TAU); }
   ctx.fill();
 }
 
-function drawChampion(s) {
-  const c = CHAMPS[s.champ];
-  ctx.save();
-  ctx.shadowColor = c.color; ctx.shadowBlur = 12;
-  ctx.fillStyle = s.hit > 0 ? '#fff' : c.color; ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 6.2832); ctx.fill();
-  ctx.shadowBlur = 0;
-  ctx.strokeStyle = '#1e3a8a'; ctx.lineWidth = 2; ctx.stroke();
-  ctx.fillStyle = '#1e3a8a'; ctx.beginPath(); ctx.arc(s.x - s.r * 0.3, s.y - s.r * 0.2, s.r * 0.18, 0, 6.2832); ctx.arc(s.x + s.r * 0.3, s.y - s.r * 0.2, s.r * 0.18, 0, 6.2832); ctx.fill();
+function hpBar(s) {
   const w = s.r * 2.4, f = clamp(s.hp / s.maxHp, 0, 1);
-  ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(s.x - w / 2, s.y - s.r - 7, w, 3);
-  ctx.fillStyle = '#4ade80'; ctx.fillRect(s.x - w / 2, s.y - s.r - 7, w * f, 3);
+  ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(s.x - w / 2, s.y - s.r * 2.1, w, 3);
+  ctx.fillStyle = '#4ade80'; ctx.fillRect(s.x - w / 2, s.y - s.r * 2.1, w * f, 3);
+}
+
+// Brute: a spiky, hunched monster with a club.
+function drawBrute(s) {
+  const r = s.r, x = s.x, y = s.y, k = Math.sin(G.t * 9 + s.ph) * r * 0.25;
+  ctx.fillStyle = '#7f1d1d';
+  ctx.fillRect(x - r * 0.75, y + r * 0.45 + k, r * 0.5, r * 0.8); ctx.fillRect(x + r * 0.25, y + r * 0.45 - k, r * 0.5, r * 0.8);
+  ctx.fillStyle = '#78350f'; ctx.fillRect(x + r * 0.85, y - r * 0.9, r * 0.32, r * 1.5);
+  ctx.fillStyle = '#a16207'; ctx.beginPath(); ctx.arc(x + r * 1.01, y - r * 1.0, r * 0.42, 0, TAU); ctx.fill();
+  ctx.fillStyle = s.hit > 0 ? '#fff' : '#991b1b';
+  ctx.beginPath(); ctx.ellipse(x, y, r, r * 0.85, 0, 0, TAU); ctx.fill();
+  ctx.fillStyle = '#fca5a5'; ctx.beginPath();
+  for (let i = -1; i <= 1; i++) { const sx = x + i * r * 0.55; ctx.moveTo(sx - r * 0.22, y - r * 0.55); ctx.lineTo(sx, y - r * 1.3); ctx.lineTo(sx + r * 0.22, y - r * 0.55); }
+  ctx.fill();
+  ctx.fillStyle = '#fde047'; ctx.beginPath(); ctx.arc(x - r * 0.35, y - r * 0.1, r * 0.22, 0, TAU); ctx.arc(x + r * 0.35, y - r * 0.1, r * 0.22, 0, TAU); ctx.fill();
+  ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(x - r * 0.33, y - r * 0.05, r * 0.1, 0, TAU); ctx.arc(x + r * 0.37, y - r * 0.05, r * 0.1, 0, TAU); ctx.fill();
+  ctx.strokeStyle = '#450a0a'; ctx.lineWidth = 1.5; ctx.beginPath();
+  ctx.moveTo(x - r * 0.6, y - r * 0.5); ctx.lineTo(x - r * 0.15, y - r * 0.3); ctx.moveTo(x + r * 0.6, y - r * 0.5); ctx.lineTo(x + r * 0.15, y - r * 0.3); ctx.stroke();
+  ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.moveTo(x - r * 0.3, y + r * 0.35); ctx.lineTo(x - r * 0.2, y + r * 0.6); ctx.lineTo(x - r * 0.1, y + r * 0.35); ctx.moveTo(x + r * 0.1, y + r * 0.35); ctx.lineTo(x + r * 0.2, y + r * 0.6); ctx.lineTo(x + r * 0.3, y + r * 0.35); ctx.fill();
+  hpBar(s);
+}
+
+function drawChampion(s) {
+  const c = CHAMPS[s.champ], r = s.r, x = s.x, y = s.y, k = Math.sin(G.t * 12 + s.ph) * r * 0.3;
+  ctx.save();
+  ctx.shadowColor = c.color; ctx.shadowBlur = 10;
+  if (s.champ === 'knight') {
+    ctx.fillStyle = '#1e3a8a'; ctx.fillRect(x - r * 0.7, y + r * 0.5 + k, r * 0.5, r * 0.9); ctx.fillRect(x + r * 0.2, y + r * 0.5 - k, r * 0.5, r * 0.9);
+    ctx.fillStyle = '#e5e7eb'; ctx.fillRect(x + r * 0.85, y - r * 2.2, r * 0.28, r * 2.1);
+    ctx.fillStyle = '#78350f'; ctx.fillRect(x + r * 0.6, y - r * 0.2, r * 0.8, r * 0.3);
+    ctx.fillStyle = s.hit > 0 ? '#fff' : '#60a5fa'; ctx.beginPath(); rrPath(x - r, y - r * 0.5, r * 2, r * 1.5, r * 0.45); ctx.fill();
+    ctx.fillStyle = '#1e40af'; ctx.fillRect(x - r * 0.15, y - r * 0.5, r * 0.3, r * 1.5);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#fde047'; ctx.beginPath(); ctx.arc(x - r * 1.05, y + r * 0.1, r * 0.6, 0, TAU); ctx.fill();
+    ctx.strokeStyle = '#b45309'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = '#b45309'; ctx.beginPath(); ctx.arc(x - r * 1.05, y + r * 0.1, r * 0.18, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#fcd9b6'; ctx.beginPath(); ctx.arc(x, y - r * 1.1, r * 0.62, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#1e40af'; ctx.beginPath(); ctx.arc(x, y - r * 1.15, r * 0.7, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#0f172a'; ctx.fillRect(x - r * 0.5, y - r * 1.2, r, r * 0.22);
+    ctx.fillStyle = '#ef4444'; ctx.beginPath(); ctx.moveTo(x, y - r * 1.85); ctx.quadraticCurveTo(x + r * 0.6, y - r * 2.4, x + r * 0.9, y - r * 1.7); ctx.quadraticCurveTo(x + r * 0.4, y - r * 1.8, x, y - r * 1.6); ctx.fill();
+  } else {
+    ctx.fillStyle = '#1f2937'; ctx.fillRect(x - r * 0.7, y + r * 0.5 + k, r * 0.5, r * 0.8); ctx.fillRect(x + r * 0.2, y + r * 0.5 - k, r * 0.5, r * 0.8);
+    ctx.fillStyle = s.hit > 0 ? '#fff' : '#111827'; ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.beginPath(); ctx.arc(x - r * 0.35, y - r * 0.35, r * 0.35, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#6b7280'; ctx.fillRect(x - r * 0.25, y - r * 1.25, r * 0.5, r * 0.4);
+    ctx.strokeStyle = '#d6d3d1'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(x, y - r * 1.25); ctx.quadraticCurveTo(x + r * 0.4, y - r * 1.8, x + r * 0.8, y - r * 1.6); ctx.stroke();
+    const sp = 0.8 + Math.sin(G.t * 40) * 0.3;
+    ctx.fillStyle = '#fde047'; ctx.beginPath(); ctx.arc(x + r * 0.8, y - r * 1.6, r * 0.3 * sp, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#fb923c'; ctx.beginPath(); ctx.arc(x + r * 0.8, y - r * 1.6, r * 0.15 * sp, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x - r * 0.3, y - r * 0.1, r * 0.22, 0, TAU); ctx.arc(x + r * 0.3, y - r * 0.1, r * 0.22, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(x - r * 0.3, y - r * 0.15, r * 0.1, 0, TAU); ctx.arc(x + r * 0.3, y - r * 0.15, r * 0.1, 0, TAU); ctx.fill();
+  }
+  hpBar(s);
   ctx.restore();
 }
 
@@ -513,7 +610,7 @@ function draw() {
     for (const g of L.gates) {
       const good = g.mult >= 2;
       const col = !good ? '239,68,68' : g.mult >= 4 ? '168,85,247' : g.mult === 3 ? '34,197,94' : '59,130,246';
-      ctx.fillStyle = `rgba(${col},${0.35 + g.flash * 0.4})`;
+      ctx.fillStyle = `rgba(${col},${(good ? 0.35 : 0.55) + g.flash * 0.4})`;
       roundRect(g.x, g.y, g.w, g.h, 6); ctx.fill();
       ctx.strokeStyle = `rgba(${col},0.95)`; ctx.lineWidth = 2.5; ctx.stroke();
       // posts
@@ -548,8 +645,8 @@ function draw() {
       ctx.fillStyle = '#fecaca'; roundRect(r.x + r.w / 2 - 9, r.y + 14, 18, r.h - 14, 4); ctx.fill();
       ctx.fillStyle = '#1f2937'; roundRect(r.x + r.w / 2 - 5, r.y + 20, 10, r.h - 20, 3); ctx.fill();
       ctx.restore();
-      ctx.fillStyle = 'rgba(0,0,0,0.45)'; roundRect(r.x, r.y - 20, r.w, 7, 3); ctx.fill();
-      ctx.fillStyle = '#f87171'; roundRect(r.x, r.y - 20, r.w * clamp(b.hp / b.maxHp, 0, 1), 7, 3); ctx.fill();
+      ctx.fillStyle = 'rgba(0,0,0,0.45)'; roundRect(r.x, r.y + r.h + 9, r.w, 7, 3); ctx.fill();
+      ctx.fillStyle = '#f87171'; roundRect(r.x, r.y + r.h + 9, r.w * clamp(b.hp / b.maxHp, 0, 1), 7, 3); ctx.fill();
     }
     // defensive line
     ctx.setLineDash([8, 6]); ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 2;
@@ -561,8 +658,9 @@ function draw() {
   }
 
   // soldiers
-  drawTeam(G.red, '#ef4444', '#fca5a5');
-  drawTeam(G.blue, '#3b82f6', '#bfdbfe');
+  drawSoldiers(G.red, PAL.red, false);
+  for (const s of G.red) if (s.brute) drawBrute(s);
+  drawSoldiers(G.blue, PAL.blue, true);
   for (const s of G.blue) if (s.champ) drawChampion(s);
 
   // particles
@@ -755,5 +853,5 @@ showMenu();
 requestAnimationFrame(frame);
 
 // Exposed for tests and tinkering.
-window.CrowdCannon = { G, save, startLevel, update, makeLevel, deploy, CANNONS, CHAMPS, UPGRADES, get level() { return L; } };
+window.CrowdCannon = { G, save, startLevel, update, draw, makeLevel, deploy, CANNONS, CHAMPS, UPGRADES, get level() { return L; } };
 })();
